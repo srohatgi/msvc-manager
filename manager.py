@@ -5,6 +5,41 @@ import getopt
 import sys
 import boto3
 
+class EB:
+
+    def __init__(self):
+        self.eb = boto3.client('elasticbeanstalk')
+
+    def list_applications(self, env):
+        for apps in self.eb.describe_applications().get('Applications'):
+            app = apps.get('ApplicationName')
+            app_env = self.app_env(app, env)
+            logging.info("app_env: {}".format(app_env))
+
+            self.list_configuration(app_env)
+            self.list_values(app, app_env)
+
+    def app_env(self, app, env):
+        if app == 'dcp-360':
+            app = 'dcp360'
+
+        return '{}-{}'.format('dcp360', env)
+
+    def list_configuration(self, app_env):
+        response = self.eb.describe_configuration_options(EnvironmentName=app_env)
+
+        for option in response.get('Options'):
+            if option.get('UserDefined') == True:
+                logging.info("name: {}".format(option.get('Name')))
+
+    def list_values(self, app, app_env):
+        response = self.eb.describe_configuration_settings(ApplicationName=app, EnvironmentName=app_env)
+
+        for setting in response.get('ConfigurationSettings')[0].get('OptionSettings'):
+            logging.info("setting: {}".format(setting))
+
+
+
 class Q:
 
     def __init__(self):
@@ -76,9 +111,9 @@ def main():
         else:
             assert False, "unhandled option"
 
-    q = Q()
+    eb = EB()
 
-    q.test()
+    eb.list_applications('dit')
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
