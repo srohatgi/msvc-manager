@@ -7,76 +7,55 @@ import boto3
 
 class EB:
 
-    def __init__(self):
+    def __init__(self, app, env):
         self.eb = boto3.client('elasticbeanstalk')
+        self.app = app
+        self.env = env
+        self.app_env = self.build_app_env(app, env)
 
-    def list_applications(self, env):
-        for apps in self.eb.describe_applications().get('Applications'):
-            app = apps.get('ApplicationName')
-            app_env = self.app_env(app, env)
-            logging.info("app_env: {}".format(app_env))
-
-            self.list_configuration(app_env)
-            self.list_values(app, app_env)
-
-    def app_env(self, app, env):
+    def build_app_env(self, app, env):
         if app == 'dcp-360':
             app = 'dcp360'
 
         return '{}-{}'.format('dcp360', env)
 
-    def list_configuration(self, app_env):
-        response = self.eb.describe_configuration_options(EnvironmentName=app_env)
+    def list_configuration(self):
+        response = self.eb.describe_configuration_options(EnvironmentName=self.app_env)
 
         for option in response.get('Options'):
             if option.get('UserDefined') == True:
                 logging.info("name: {}".format(option.get('Name')))
 
-    def list_values(self, app, app_env):
-        response = self.eb.describe_configuration_settings(ApplicationName=app, EnvironmentName=app_env)
+    def list_values(self):
+        d = {}
+        response = self.eb.describe_configuration_settings(ApplicationName=self.app, EnvironmentName=self.app_env)
 
         for setting in response.get('ConfigurationSettings')[0].get('OptionSettings'):
-            logging.info("setting: {}".format(setting))
+            if setting.get('Namespace') == 'aws:elasticbeanstalk:application:environment':
+                name = setting.get('OptionName')
+                value = setting.get('Value')
+                logging.info("setting: {} value: {}".format(name, value))
+                d[name] = value
+
+        return d
 
 
 
-class Q:
+class MicroService:
 
-    def __init__(self):
-        self.sqs = boto3.resource('sqs')
+    def __init__(self, name):
+        self.name = name
+        self.env = {
+            'dit': {},
+            'qa': {}
+        }
 
-    def test(self):
-        self.qinfo()
-        self.qwrite('test')
-        self.qread('test')
+    def sync(self):
+        for e in self.env.keys():
+            eb = EB(self.name, e)
+            self.env[e] = eb.list_values()
 
-    def storage(env, layer):
-        s3 = boto3.resource('s3')
-        for bucket in s3.buckets.all():
-            logging.info("bucket found: {name}".format(name=bucket.name))
-
-    def qinfo(self):
-        for q in self.sqs.queues.all():
-            logging.info("queue {name} {url}".format(name=q.attributes['QueueArn'].split(':')[-1], url=q.url))
-
-    def qwrite(self, qname):
-        q = self.sqs.get_queue_by_name(QueueName=qname)
-        response = q.send_message(MessageBody='boto3', MessageAttributes={
-            'Author': {
-                'StringValue': 'Daniel',
-                'DataType': 'String'
-            }
-        })
-
-        logging.info("message id: {id}".format(id=response.get('MessageId')))
-
-    def qread(self, qname):
-        q = self.sqs.get_queue_by_name(QueueName='test')
-
-        for message in q.receive_messages(MessageAttributeNames=['Author']):
-            if message.message_attributes is not None:
-                author_name = message.message_attributes.get('Author').get('StringValue')
-                logging.info("author name = {}".format(author_name))
+        logging.info("service env: {}".format(self.env))
 
 
 def usage(message):
@@ -94,26 +73,26 @@ def main():
     try:
         opts, args = getopt.getopt(sys.argv[1:],
                                    "he:l:",
-                                   ["help", "env=", "layer="])
+                                   ["help", "service="])
     except getopt.GetoptError as err:
         usage(err)
 
-    env = 'dit'
-    layer = 'pfm'
-
+    service = None
     for option, argument in opts:
-        if option in ('-e', '--env'):
-        	env = argument
-        elif option in ('-l', '--layer'):
-        	layer = argument
+        if option in ('-s', '--service'):
+        	service = argument
         elif option == '-h':
             usage(None)
         else:
             assert False, "unhandled option"
 
-    eb = EB()
+    if service is None:
+        logging.error("--service option required!")
+        sys.exit(1)
 
-    eb.list_applications('dit')
+    msvc = MicroService(service)
+    msvc.sync()
+
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
