@@ -40,23 +40,39 @@ class EB:
         return d
 
 
-
 class MicroService:
 
-    def __init__(self, name):
+    def __init__(self, name, env):
         self.name = name
-        self.env = {
-            'dit': {},
-            'qa': {}
-        }
+        self.env = env
+        self.props = {}
 
     def sync(self):
-        for e in self.env.keys():
-            eb = EB(self.name, e)
-            self.env[e] = eb.list_values()
+        eb = EB(self.name, self.env)
+        self.props = eb.list_values()
 
-        logging.info("service env: {}".format(self.env))
+        logging.info("service props: {}".format(self.props))
 
+class DictDiffer(object):
+    """
+    Calculate the difference between two dictionaries as:
+    (1) items added
+    (2) items removed
+    (3) keys same in both but changed values
+    (4) keys same in both and unchanged values
+    """
+    def __init__(self, current_dict, past_dict):
+        self.current_dict, self.past_dict = current_dict, past_dict
+        self.set_current, self.set_past = set(current_dict.keys()), set(past_dict.keys())
+        self.intersect = self.set_current.intersection(self.set_past)
+    def added(self):
+        return self.set_current - self.intersect
+    def removed(self):
+        return self.set_past - self.intersect
+    def changed(self):
+        return set(o for o in self.intersect if self.past_dict[o] != self.current_dict[o])
+    def unchanged(self):
+        return set(o for o in self.intersect if self.past_dict[o] == self.current_dict[o])
 
 def usage(message):
     code = 0
@@ -72,15 +88,18 @@ def main():
     opts = None
     try:
         opts, args = getopt.getopt(sys.argv[1:],
-                                   "he:l:",
-                                   ["help", "service="])
+                                   "he:s:",
+                                   ["help", "service=", "env="])
     except getopt.GetoptError as err:
         usage(err)
 
     service = None
+    env = 'dit'
     for option, argument in opts:
         if option in ('-s', '--service'):
         	service = argument
+        elif option in ('-e', '--env'):
+        	env = argument
         elif option == '-h':
             usage(None)
         else:
@@ -90,7 +109,7 @@ def main():
         logging.error("--service option required!")
         sys.exit(1)
 
-    msvc = MicroService(service)
+    msvc = MicroService(service, env)
     msvc.sync()
 
 
